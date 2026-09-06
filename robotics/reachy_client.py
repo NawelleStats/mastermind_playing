@@ -100,3 +100,77 @@ def go_to_sleep(mini) -> None:
     """Comportement intégré du SDK : pose de veille + son. Utile en fin de
     session (pas nécessairement en fin de partie)."""
     mini.goto_sleep()
+
+
+def adjust_gaze_interactively(
+    mini,
+    get_frame,
+    initial_pitch_deg: float = 25.0,
+    initial_yaw_deg: float = 0.0,
+    step_deg: float = 3.0,
+) -> None:
+    """Ouvre une fenêtre live permettant d'orienter la tête au clavier
+    jusqu'à bien cadrer le plateau, avant de lancer la calibration.
+
+    Touches (lettres, pas les flèches : leur code varie trop selon l'OS
+    dans OpenCV, notamment sur macOS) :
+        i / k : pencher la tête vers le haut / le bas (pitch)
+        j / l : tourner la tête à gauche / à droite (yaw)
+        +  /  - : augmenter / diminuer le pas de déplacement
+        c ou Entrée : valider la position et continuer
+        q : passer sans changer la position par défaut
+    """
+    import cv2
+
+    pitch, yaw, step = initial_pitch_deg, initial_yaw_deg, step_deg
+    window = "Ajuster le regard du robot"
+    cv2.namedWindow(window)
+
+    def apply_pose() -> None:
+        mini.goto_target(
+            head=create_head_pose(pitch=pitch, yaw=yaw, degrees=True), duration=0.3
+        )
+
+    apply_pose()
+    print(
+        "Orientez la tête du robot pour bien cadrer le plateau : "
+        "i/k = haut/bas, j/l = gauche/droite, +/- = pas, "
+        "c ou Entrée = valider, q = passer."
+    )
+
+    while True:
+        frame = get_frame()
+        display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
+        cv2.putText(
+            display, f"pitch={pitch:.0f} yaw={yaw:.0f} pas={step:.0f}",
+            (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
+        )
+        cv2.imshow(window, display)
+
+        key = cv2.waitKey(30) & 0xFF
+        moved = True
+        if key == ord("i"):
+            pitch -= step
+        elif key == ord("k"):
+            pitch += step
+        elif key == ord("j"):
+            yaw -= step
+        elif key == ord("l"):
+            yaw += step
+        elif key == ord("+"):
+            step += 1.0
+            moved = False
+        elif key == ord("-"):
+            step = max(1.0, step - 1.0)
+            moved = False
+        elif key in (ord("c"), 13):
+            break
+        elif key == ord("q"):
+            break
+        else:
+            moved = False
+
+        if moved:
+            apply_pose()
+
+    cv2.destroyWindow(window)

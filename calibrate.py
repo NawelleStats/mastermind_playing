@@ -7,7 +7,9 @@ Usage :
                                           # (pratique pour tester sans robot)
     python calibrate.py --rows 10 --code-length 4 --colors rouge,bleu,vert,jaune,orange,violet
 
-Déroulé :
+Déroulé (mode robot réel) :
+0. Une fenêtre s'ouvre pour orienter la tête du robot au clavier
+   (i/j/k/l) jusqu'à bien cadrer le plateau. 'c'/Entrée pour valider.
 1. Une fenêtre s'ouvre avec le flux vidéo en direct.
 2. Vous cliquez le centre de chaque trou, ligne par ligne (la ligne 0 sera
    utilisée comme secret en mode codemaker). 'r' pour recommencer une ligne
@@ -15,15 +17,18 @@ Déroulé :
 3. Une seconde fenêtre demande de cliquer un pion de chaque couleur, pour
    calibrer les vraies teintes sous votre éclairage.
 4. Le résultat est sauvegardé dans board_calibration.json.
+
+En mode --webcam, l'étape 0 (orientation de la tête) est ignorée : il n'y
+a pas de robot à orienter.
 """
 
 import argparse
-import os
 
 import cv2
 
 from perception import BoardLayout, calibrate_colors, calibrate_grid
 from perception.camera import FakeCamera, ReachyCamera
+from robotics import RobotSession, adjust_gaze_interactively
 
 DEFAULT_COLORS = ["rouge", "bleu", "vert", "jaune", "orange", "violet"]
 OUTPUT_PATH = "board_calibration.json"
@@ -48,6 +53,32 @@ def make_webcam_provider(device_index: int = 0):
     return get_frame
 
 
+def calibrate_with_webcam(args, colors) -> BoardLayout:
+    with FakeCamera(make_webcam_provider()) as cam:
+        print("Étape 1/2 : calibration de la grille de trous.")
+        layout = calibrate_grid(cam.get_frame, num_rows=args.rows, code_length=args.code_length)
+
+        print("Étape 2/2 : calibration des couleurs.")
+        layout.references = calibrate_colors(cam.get_frame, colors)
+    return layout
+
+
+def calibrate_with_robot(args, colors) -> BoardLayout:
+    with RobotSession() as mini:
+        # Connexion caméra réutilisant la même session robot (une seule
+        # connexion active au total, partagée avec l'orientation de tête).
+        with ReachyCamera(mini=mini) as cam:
+            print("Étape 0/2 : orientez la tête du robot vers le plateau.")
+            adjust_gaze_interactively(mini, cam.get_frame)
+
+            print("Étape 1/2 : calibration de la grille de trous.")
+            layout = calibrate_grid(cam.get_frame, num_rows=args.rows, code_length=args.code_length)
+
+            print("Étape 2/2 : calibration des couleurs.")
+            layout.references = calibrate_colors(cam.get_frame, colors)
+    return layout
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calibration du plateau Mastermind")
     parser.add_argument(
@@ -64,19 +95,9 @@ def main() -> None:
     colors = args.colors.split(",")
 
     if args.webcam:
-        cam_ctx = FakeCamera(make_webcam_provider())
+        layout = calibrate_with_webcam(args, colors)
     else:
-        cam_ctx = ReachyCamera(
-            host=os.getenv("REACHY_MINI_HOST"),
-            port=int(os.getenv("REACHY_MINI_PORT", "8000")),
-        )
-
-    with cam_ctx as cam:
-        print("Étape 1/2 : calibration de la grille de trous.")
-        layout = calibrate_grid(cam.get_frame, num_rows=args.rows, code_length=args.code_length)
-
-        print("Étape 2/2 : calibration des couleurs.")
-        layout.references = calibrate_colors(cam.get_frame, colors)
+        layout = calibrate_with_robot(args, colors)
 
     layout.save(OUTPUT_PATH)
     print(f"Calibration sauvegardée dans {OUTPUT_PATH}")

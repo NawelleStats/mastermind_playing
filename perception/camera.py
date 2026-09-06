@@ -8,7 +8,6 @@ Ce module isole cette dépendance : le reste de `perception/` ne connaît
 que des `np.ndarray`, jamais directement le SDK.
 """
 
-import os
 import time
 from typing import Generator, Optional
 
@@ -21,49 +20,72 @@ except ImportError:  # permet de développer/tester sans le SDK installé
 
 
 class ReachyCamera:
-    """Contexte gérant la connexion caméra et la cadence de capture."""
+    """Contexte gérant la connexion caméra et la cadence de capture.
+
+    Par défaut ouvre sa propre connexion au robot. Si `mini` est fourni
+    (ex: une connexion déjà ouverte par `robotics.reachy_client.RobotSession`),
+    la réutilise sans la fermer à la sortie du bloc `with` — utile pour
+    éviter d'ouvrir plusieurs connexions simultanées à Reachy Mini quand
+    perception/robotics/dialogue tournent ensemble.
+    """
 
     def __init__(
         self,
         media_backend: str = "default",
         target_fps: float = 10.0,
-        mini=None,
-        host: Optional[str] = None,
-        port: int = 8000,
+        mini: Optional["ReachyMini"] = None,
     ):
-        if ReachyMini is None and mini is None:
+        if mini is None and ReachyMini is None:
             raise RuntimeError(
                 "le package 'reachy_mini' n'est pas installé. "
                 "pip install reachy-mini pour utiliser la caméra réelle."
             )
         self.media_backend = media_backend
-        self.host = host
-        self.port = port
         self.target_fps = target_fps
         self._mini = mini
-        self._owns_mini = mini is None
+        self._owns_connection = mini is None
 
     def __enter__(self) -> "ReachyCamera":
-        if self._owns_mini:
-            self._mini = ReachyMini(
-                host=self.host or os.getenv("REACHY_MINI_HOST", "reachy-mini.local"),
-                port=self.port,
-                connection_mode="network",
-                spawn_daemon=False,
-                media_backend=self.media_backend,
-            ).__enter__()
+        if self._owns_connection:
+            self._mini = ReachyMini(media_backend=self.media_backend).__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self._owns_mini and self._mini is not None:
+        if self._owns_connection and self._mini is not None:
             self._mini.__exit__(exc_type, exc_val, exc_tb)
             self._mini = None
 
-    def get_frame(self) -> np.ndarray:
-        """Renvoie la dernière image caméra disponible (RGB, uint8)."""
+    def get_frame(self, retries: int = 50, retry_delay: float = 0.2) -> np.ndarray:
+        """Renvoie la dernière image caméra disponible (RGB, uint8).
+
+        Sur backend WEBRTC (robot distant, cas d'un Reachy Mini wireless),
+        les toutes premières frames peuvent arriver vides le temps que la
+        négociation vidéo se termine : on réessaie plusieurs fois avant
+        d'abandonner plutôt que de planter au premier appel.
+        """
         if self._mini is None:
             raise RuntimeError("ReachyCamera utilisé hors du bloc 'with'")
-        return self._mini.media.get_frame()
+
+        for attempt in range(retries):
+            frame = self._mini.media.get_frame()
+            if frame is not None and frame.size > 0:
+                if attempt > 0:
+                    print(f"[camera] première frame reçue après {attempt} tentative(s)")
+                return frame
+            if attempt == 10:
+                print(
+                    "[camera] toujours aucune frame après 2s, la négociation "
+                    "vidéo WebRTC semble lente ou bloquée..."
+                )
+            time.sleep(retry_delay)
+
+        raise RuntimeError(
+            f"aucune image caméra reçue après {retries} tentatives "
+            f"({retries * retry_delay:.1f}s). Causes probables : "
+            "(1) désaccord de version SDK/daemon (voir le RuntimeWarning au "
+            "démarrage : alignez les deux avec 'pip install reachy-mini==<version du daemon>'), "
+            "(2) le flux vidéo n'est pas démarré côté robot."
+        )
 
     def frames(self) -> Generator[np.ndarray, None, None]:
         """Générateur infini d'images cadencé à `target_fps`.
