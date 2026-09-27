@@ -8,7 +8,14 @@ en une ligne dans `main.py` — voir le TODO qui y était laissé.
 from typing import List
 
 from core.rules import Feedback
-from robotics import express_disappointment, express_joy, nod_yes, thinking, wiggle_antennas
+from robotics import (
+    express_disappointment,
+    express_joy,
+    look_down_at_board,
+    nod_yes,
+    thinking,
+    wiggle_antennas,
+)
 from .text_to_speech import Speaker
 
 
@@ -19,14 +26,27 @@ class DialogueManager:
     l'application (voir `robotics.RobotSession`).
     """
 
-    def __init__(self, mini, language_hint: str = "fr"):
+    def __init__(
+        self,
+        mini,
+        language_hint: str = "fr",
+        gaze_pitch_deg: float = 25.0,
+        gaze_yaw_deg: float = 0.0,
+    ):
         self._mini = mini
+        self._gaze_pitch_deg = gaze_pitch_deg
+        self._gaze_yaw_deg = gaze_yaw_deg
         self._speaker = Speaker(mini, voice_lang_hint=language_hint)
 
     # --- Mode codebreaker : Reachy Mini propose ses essais -----------------
 
     def announce_guess(self, guess: List[str]) -> None:
         thinking(self._mini)
+        look_down_at_board(
+            self._mini,
+            pitch_deg=self._gaze_pitch_deg,
+            yaw_deg=self._gaze_yaw_deg,
+        )
         self._speaker.say(f"Je propose : {', '.join(guess)}.")
 
     # --- Mode codemaker : Reachy Mini note les essais de l'humain -----------
