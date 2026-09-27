@@ -42,3 +42,6 @@ REACHY_MINI_HOST = os.getenv("REACHY_MINI_HOST", "reachy-mini.local")
 REACHY_MINI_PORT = _int_setting("REACHY_MINI_PORT", 8000)
 REACHY_MINI_MEDIA_BACKEND = os.getenv("REACHY_MINI_MEDIA_BACKEND", "default")
 REACHY_MINI_CONNECTION_MODE = os.getenv("REACHY_MINI_CONNECTION_MODE", "network")
+TTS_VOLUME = float(os.getenv("TTS_VOLUME", "1.0"))
+if not 0.0 <= TTS_VOLUME <= 1.0:
+    raise ValueError("TTS_VOLUME doit être compris entre 0.0 et 1.0")
