@@ -27,6 +27,19 @@ FRAME_RETRIES = 100
 FRAME_RETRY_DELAY = 0.1
 
 
+def _draw_instructions(display, lines: List[str]) -> None:
+    """Affiche un panneau lisible de consignes par-dessus l'image live."""
+    line_height = 24
+    panel_height = 12 + line_height * len(lines)
+    cv2.rectangle(display, (6, 6), (650, panel_height), (0, 0, 0), -1)
+    for index, line in enumerate(lines):
+        cv2.putText(
+            display, line, (14, 28 + index * line_height),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1,
+            cv2.LINE_AA,
+        )
+
+
 def _read_frame(get_frame):
     """Attend la première frame WebRTC valide avant de l'afficher."""
     for attempt in range(FRAME_RETRIES):
@@ -44,58 +57,101 @@ def _read_frame(get_frame):
     )
 
 
-def calibrate_grid(
-    get_frame, num_rows: int, code_length: int
-) -> BoardLayout:
-    """Calibre la grille de trous par clics successifs sur une image live.
-
-    `get_frame` : fonction sans argument renvoyant la dernière image caméra
-    (ex: `camera.get_frame`).
-    Clique les centres des trous dans l'ordre : ligne 0 gauche→droite, puis
-    ligne 1, etc. Appuyer sur 'r' pour recommencer, 'q'/Entrée pour valider
-    une fois toutes les lignes cliquées.
-    """
-    rows: List[List[Point]] = [[] for _ in range(num_rows)]
-    current_row = 0
+def _annotate_rows(
+    get_frame,
+    rows: List[List[Point]],
+    start_row: int,
+    end_row: int,
+    title: str,
+    instructions: List[str],
+    num_columns: int,
+) -> None:
+    """Annote une section de lignes et permet d'annuler le dernier clic."""
+    current_row = start_row
+    window_name = f"{WINDOW_NAME} - {title}"
 
     def on_click(event, x, y, flags, param):
         nonlocal current_row
-        if event == cv2.EVENT_LBUTTONDOWN and current_row < num_rows:
+        if event == cv2.EVENT_LBUTTONDOWN and current_row < end_row:
             rows[current_row].append((x, y))
-            if len(rows[current_row]) == code_length:
+            if len(rows[current_row]) == num_columns:
                 current_row += 1
 
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-    cv2.resizeWindow(WINDOW_NAME, 1280, 720)
-    cv2.moveWindow(WINDOW_NAME, 40, 40)
-    cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_TOPMOST, 1)
-    cv2.setMouseCallback(WINDOW_NAME, on_click)
-
-    print(
-        f"Calibration grille : cliquez {code_length} trous par ligne, "
-        f"pour {num_rows} lignes. 'r' pour réinitialiser, 'q' pour valider."
-    )
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    cv2.resizeWindow(window_name, 1280, 720)
+    cv2.moveWindow(window_name, 40, 40)
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+    cv2.setMouseCallback(window_name, on_click)
 
     while True:
         frame = _read_frame(get_frame)
         display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
         for row in rows:
-            for (x, y) in row:
+            for x, y in row:
                 cv2.circle(display, (x, y), 6, (0, 255, 0), 2)
-        status = f"ligne {min(current_row, num_rows - 1) + 1}/{num_rows}"
-        cv2.putText(display, status, (10, 24), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 255, 0), 2)
-        cv2.imshow(WINDOW_NAME, display)
-        cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_TOPMOST, 1)
 
-        key = cv2.waitKey(30) & 0xFF
-        if key == ord("r"):
-            rows = [[] for _ in range(num_rows)]
-            current_row = 0
-        elif key in (ord("q"), 13) and current_row >= num_rows:
-            break
+        displayed_row = min(current_row, end_row - 1)
+        status = f"ligne {displayed_row + 1}/{len(rows)}"
+        _draw_instructions(display, instructions + [
+            status,
+            "R : supprimer le dernier point",
+            "Q / Entree : valider cette etape",
+        ])
+        cv2.imshow(window_name, display)
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
 
-    cv2.destroyWindow(WINDOW_NAME)
+        raw_key = cv2.waitKeyEx(30)
+        key = raw_key & 0xFF
+        key_char = chr(key).lower() if 0 <= key < 256 else ""
+        if key_char == "r":
+            for row_index in range(end_row - 1, start_row - 1, -1):
+                if rows[row_index]:
+                    rows[row_index].pop()
+                    current_row = row_index
+                    break
+        elif key_char == "q" or key in (10, 13):
+            if current_row >= end_row:
+                break
+
+    cv2.destroyWindow(window_name)
+
+
+def calibrate_grid(get_frame, num_rows: int, num_columns: int) -> BoardLayout:
+    """Calibre d'abord le code secret, puis les lignes restantes du plateau."""
+    rows: List[List[Point]] = [[] for _ in range(num_rows)]
+
+    print(f"Étape code secret : cliquez {num_columns} trous sur la ligne 0.")
+    _annotate_rows(
+        get_frame,
+        rows,
+        start_row=0,
+        end_row=1,
+        title="Code secret",
+        instructions=[
+            "ANNOTATION DU CODE SECRET",
+            "Clic gauche : placer un trou du code secret",
+            f"Code : {num_columns} trous, de gauche a droite",
+        ],
+        num_columns=num_columns,
+    )
+
+    if num_rows > 1:
+        print(f"Étape grille : cliquez les {num_rows - 1} lignes restantes.")
+        _annotate_rows(
+            get_frame,
+            rows,
+            start_row=1,
+            end_row=num_rows,
+            title="Grille",
+            instructions=[
+                "ANNOTATION DE LA GRILLE",
+                "Clic gauche : placer le centre d'un trou",
+                f"Grille : {num_rows - 1} lignes restantes x {num_columns} trous",
+                "La ligne 0 est deja annotee comme code secret",
+            ],
+            num_columns=num_columns,
+        )
+
     return BoardLayout(rows=rows)
 
 
@@ -128,8 +184,12 @@ def calibrate_colors(
         while clicked_point["pt"] is None:
             frame = _read_frame(get_frame)
             display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
-            cv2.putText(display, f"cliquez : {target}", (10, 24),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            _draw_instructions(display, [
+                "CALIBRATION DES COULEURS",
+                f"Clic gauche : selectionner un pion {target}",
+                "Une couleur a la fois, dans l'ordre affiche",
+                "Q : quitter la calibration des couleurs",
+            ])
             cv2.imshow(WINDOW_NAME, display)
             if cv2.waitKey(30) & 0xFF == ord("q"):
                 cv2.destroyWindow(WINDOW_NAME)

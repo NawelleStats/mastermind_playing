@@ -32,18 +32,26 @@ class BoardLayout:
     """
     rows: List[List[Point]] = field(default_factory=list)
     patch_radius: int = 8
+    code_length: int = 0
     references: Dict[str, ColorReference] = field(
         default_factory=lambda: DEFAULT_REFERENCES
     )
+    gaze: Optional[Dict[str, float]] = None
+
+    def __post_init__(self) -> None:
+        if self.rows:
+            self.code_length = len(self.rows[0])
 
     def save(self, path: str) -> None:
         data = {
             "rows": self.rows,
             "patch_radius": self.patch_radius,
+            "code_length": self.code_length,
             "references": {
                 name: {"hue": r.hue, "sat": r.sat, "val": r.val}
                 for name, r in self.references.items()
             },
+            "gaze": self.gaze,
         }
         Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -55,7 +63,12 @@ class BoardLayout:
             for name, vals in data["references"].items()
         }
         rows = [[tuple(pt) for pt in row] for row in data["rows"]]
-        return cls(rows=rows, patch_radius=data["patch_radius"], references=references)
+        return cls(
+            rows=rows,
+            patch_radius=data["patch_radius"],
+            references=references,
+            gaze=data.get("gaze"),
+        )
 
 
 def _extract_patch(frame: np.ndarray, center: Point, radius: int) -> np.ndarray:
@@ -71,6 +84,7 @@ def read_row(
     layout: BoardLayout,
     row_index: int,
     classify_fn: Optional[ClassifyFn] = None,
+    num_columns: Optional[int] = None,
 ) -> List[str]:
     """Lit une ligne donnée du plateau sur l'image courante.
 
@@ -85,7 +99,10 @@ def read_row(
 
     fn = classify_fn or (lambda patch: classify_patch(patch, layout.references))
     colors = []
-    for center in layout.rows[row_index]:
+    centers = layout.rows[row_index]
+    if num_columns is not None:
+        centers = centers[:num_columns]
+    for center in centers:
         patch = _extract_patch(frame, center, layout.patch_radius)
         colors.append(fn(patch))
     return colors
@@ -95,6 +112,7 @@ def find_last_filled_row(
     frame: np.ndarray,
     layout: BoardLayout,
     classify_fn: Optional[ClassifyFn] = None,
+    num_columns: Optional[int] = None,
 ) -> Optional[Tuple[int, List[str]]]:
     """Parcourt les lignes de haut en bas et renvoie la dernière ligne
     entièrement remplie (aucun trou EMPTY_LABEL), avec son index et son
@@ -106,7 +124,7 @@ def find_last_filled_row(
     """
     last_filled = None
     for i in range(len(layout.rows)):
-        colors = read_row(frame, layout, i, classify_fn)
+        colors = read_row(frame, layout, i, classify_fn, num_columns)
         if EMPTY_LABEL not in colors:
             last_filled = (i, colors)
         else:

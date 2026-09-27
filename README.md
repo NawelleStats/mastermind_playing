@@ -13,6 +13,8 @@ Jeu de Mastermind jouable avec le robot Reachy Mini, dans les deux rôles :
 ```
 mastermind_reachy/
 ├── main.py                # point d'entrée : lance une partie
+├── .env.exemple           # en local .env avec les variables d'environnement
+├── config.py              # gestion des variables de l'application
 ├── calibrate.py           # génère board_calibration.json
 ├── board_calibration.json # généré par calibrate.py (absent au départ)
 │
@@ -44,11 +46,33 @@ logique de jeu est testable sans caméra ni robot.
 ## Installation
 
 ```bash
-python3 -m venv reachy_env
-source reachy_env/bin/activate
+uv sync
+source .venv/bin/activate
 
-pip install reachy-mini opencv-python numpy --break-system-packages
+cp .env.example .env
 ```
+
+`uv sync` crée et gère l'environnement virtuel `.venv` ainsi que les
+dépendances du projet. Pour exécuter une commande sans activer
+l'environnement :
+
+```bash
+uv run python calibrate.py --webcam
+```
+
+Après le premier `uv sync`, utilise `uv run --no-sync` pour lancer
+instantanément le script sans que `uv` revérifie l'environnement à chaque
+fois :
+
+```bash
+uv run --no-sync python calibrate.py
+```
+
+Les valeurs par défaut sont dans `.env` : dimensions du plateau, couleurs,
+nombre d'essais et paramètres de connexion Reachy. La longueur du code est
+toujours égale au nombre de colonnes.
+Utilise `.env.example` comme modèle; les options passées sur la ligne de
+commande de `calibrate.py` restent prioritaires.
 
 > Utilise `opencv-python` (pas `opencv-python-headless`) : les fenêtres de
 > calibration et de vision live ont besoin d'un affichage.
@@ -60,12 +84,12 @@ Nécessaire une fois par installation physique (position caméra/plateau).
 
 **Sans robot (test sur la webcam de l'ordinateur) :**
 ```bash
-python calibrate.py --webcam
+uv run python calibrate.py --webcam
 ```
 
 **Avec Reachy Mini branché :**
 ```bash
-python calibrate.py
+uv run python calibrate.py
 ```
 
 Si la découverte mDNS ne fonctionne pas, indiquez directement l'adresse du
@@ -73,20 +97,26 @@ daemon :
 ```bash
 export REACHY_MINI_HOST=192.168.1.95
 export REACHY_MINI_PORT=8000
-python calibrate.py
-python main.py codebreaker
+uv run python calibrate.py
+uv run python main.py codebreaker
 ```
 
 Options utiles :
 ```bash
-python calibrate.py --rows 10 --code-length 4 \
-  --colors rouge,bleu,vert,jaune,orange,violet
+uv run python calibrate.py --rows 12 --columns 5 \
+  --colors rouge,bleu,vert,jaune,orange,violet,noir,blanc
 ```
 
+`--rows` et `--columns` décrivent la grille physique. Le code secret contient
+un pion par colonne : une grille de 5 × 12 utilise donc un code de 5 pions.
+Les couleurs indiquées sont également celles utilisées par le jeu après la
+calibration.
+
 Déroulé :
-1. Une fenêtre live s'ouvre — clique le centre de chaque trou, ligne par
-   ligne (la **ligne 0** sert de ligne "secret" en mode codemaker). `r` pour
-   recommencer une ligne, `q`/Entrée une fois toutes les lignes cliquées.
+1. Une fenêtre live dédiée au **code secret** s'ouvre d'abord pour annoter la
+  ligne 0, puis une seconde fenêtre permet d'annoter les lignes restantes de
+  la grille. `r` supprime uniquement le dernier point et `q`/Entrée valide
+  l'étape en cours.
 2. Une seconde fenêtre demande de cliquer un pion de chaque couleur, pour
    calibrer les teintes réelles sous ton éclairage.
 3. Le résultat est sauvegardé dans `board_calibration.json`.
@@ -101,9 +131,17 @@ run_display(BoardLayout.load("board_calibration.json"))
 ## 2. Jouer
 
 ```bash
-python main.py codemaker      # Reachy Mini tient le secret
-python main.py codebreaker    # Reachy Mini devine ton secret
+uv run python main.py codemaker      # Reachy Mini tient le secret
+uv run python main.py codebreaker    # Reachy Mini devine ton secret
 ```
+
+Pour afficher ce que voit la caméra pendant la partie :
+
+```bash
+uv run --no-sync python main.py codebreaker --show-camera
+```
+
+La fenêtre `VISION ROBOT` affiche la grille observée; `Q` ferme l'affichage.
 
 - **Codemaker** : place ta combinaison secrète sur la ligne 0 sans la
   regarder toi-même si tu veux jouer honnêtement, puis place tes essais sur
@@ -130,7 +168,7 @@ vocales hors ligne.
 ## Tests
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
 `core/` est testable indépendamment du matériel. `perception/` peut être

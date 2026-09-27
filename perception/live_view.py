@@ -23,6 +23,23 @@ from .peg_localizer import BoardLayout, ClassifyFn, find_last_filled_row, read_r
 DISPLAY_WINDOW = "Reachy Mini - vision plateau"
 
 
+def _display_close_requested() -> bool:
+    key = cv2.waitKey(1) & 0xFF
+    if key and chr(key).lower() == "q":
+        return True
+    try:
+        return cv2.getWindowProperty(DISPLAY_WINDOW, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:
+        return True
+
+
+def _destroy_display_window() -> None:
+    try:
+        cv2.destroyWindow(DISPLAY_WINDOW)
+    except cv2.error:
+        pass
+
+
 def _color_to_bgr(label: str) -> Tuple[int, int, int]:
     """Couleur d'annotation approximative pour l'overlay (juste visuel)."""
     palette = {
@@ -41,24 +58,26 @@ def run_display(
     Appuyer sur 'q' pour quitter.
     """
     with ReachyCamera(target_fps=target_fps) as cam:
-        for frame in cam.frames():
-            display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
+        cv2.namedWindow(DISPLAY_WINDOW, cv2.WINDOW_NORMAL)
+        try:
+            for frame in cam.frames():
+                if _display_close_requested():
+                    break
+                display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
 
-            for row_index, row in enumerate(layout.rows):
-                colors = read_row(frame, layout, row_index, classify_fn)
-                for (x, y), label in zip(row, colors):
-                    color = _color_to_bgr(label)
-                    cv2.circle(display, (x, y), layout.patch_radius, color, 2)
-                    cv2.putText(
-                        display, label, (x - 20, y - layout.patch_radius - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1,
-                    )
+                for row_index, row in enumerate(layout.rows):
+                    colors = read_row(frame, layout, row_index, classify_fn)
+                    for (x, y), label in zip(row, colors):
+                        color = _color_to_bgr(label)
+                        cv2.circle(display, (x, y), layout.patch_radius, color, 2)
+                        cv2.putText(
+                            display, label, (x - 20, y - layout.patch_radius - 6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1,
+                        )
 
-            cv2.imshow(DISPLAY_WINDOW, display)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-    cv2.destroyWindow(DISPLAY_WINDOW)
+                cv2.imshow(DISPLAY_WINDOW, display)
+        finally:
+            _destroy_display_window()
 
 
 def watch_for_new_row(
@@ -67,6 +86,8 @@ def watch_for_new_row(
     target_fps: float = 5.0,
     stability_frames: int = 3,
     classify_fn: Optional[ClassifyFn] = None,
+    num_columns: Optional[int] = None,
+    show_camera: bool = False,
     mini=None,
 ) -> Generator[Tuple[int, List[str]], None, None]:
     """Surveille le plateau en continu et cède une lecture uniquement
@@ -87,26 +108,48 @@ def watch_for_new_row(
     pending: Optional[Tuple[int, List[str]]] = None
     stable_count = 0
 
-    with ReachyCamera(target_fps=target_fps, mini=mini) as cam:
-        for frame in cam.frames():
-            result = find_last_filled_row(frame, layout, classify_fn)
-            if result is None:
-                pending, stable_count = None, 0
-                continue
+    if show_camera:
+        cv2.namedWindow(DISPLAY_WINDOW, cv2.WINDOW_NORMAL)
+    try:
+        with ReachyCamera(target_fps=target_fps, mini=mini) as cam:
+            for frame in cam.frames():
+                if show_camera and _display_close_requested():
+                    _destroy_display_window()
+                    show_camera = False
 
-            row_index, colors = result
-            if row_index <= last_reported:
-                continue  # déjà signalée
+                result = find_last_filled_row(
+                    frame, layout, classify_fn, num_columns=num_columns
+                )
+                if show_camera:
+                    display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
+                    for row in layout.rows:
+                        for x, y in row:
+                            cv2.circle(display, (x, y), layout.patch_radius, (0, 255, 0), 2)
+                    cv2.putText(
+                        display, "VISION ROBOT - Q pour quitter l'affichage",
+                        (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2,
+                    )
+                    cv2.imshow(DISPLAY_WINDOW, display)
+                if result is None:
+                    pending, stable_count = None, 0
+                    continue
 
-            if pending is not None and pending == (row_index, colors):
-                stable_count += 1
-            else:
-                pending, stable_count = (row_index, colors), 1
+                row_index, colors = result
+                if row_index <= last_reported:
+                    continue  # déjà signalée
 
-            if stable_count >= stability_frames:
-                last_reported = row_index
-                pending, stable_count = None, 0
-                yield row_index, colors
+                if pending is not None and pending == (row_index, colors):
+                    stable_count += 1
+                else:
+                    pending, stable_count = (row_index, colors), 1
+
+                if stable_count >= stability_frames:
+                    last_reported = row_index
+                    pending, stable_count = None, 0
+                    yield row_index, colors
+    finally:
+        if show_camera:
+            _destroy_display_window()
 
 
 if __name__ == "__main__":

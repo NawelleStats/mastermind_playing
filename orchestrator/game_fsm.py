@@ -62,6 +62,7 @@ class CodebreakerOrchestrator:
     on_result: OnResult = _default_on_result
     camera_fps: float = 5.0
     stability_frames: int = 3
+    show_camera: bool = False
     mini: object = None
 
     def run(self) -> Board:
@@ -74,6 +75,8 @@ class CodebreakerOrchestrator:
         feedback_stream = watch_for_new_row(
             self.layout, already_read_rows=0, target_fps=self.camera_fps,
             stability_frames=self.stability_frames, classify_fn=classify_feedback_patch,
+            num_columns=self.code_length,
+            show_camera=self.show_camera,
             mini=self.mini,
         )
 
@@ -108,12 +111,15 @@ class CodemakerOrchestrator:
     on_result: OnResult = _default_on_result
     camera_fps: float = 5.0
     stability_frames: int = 3
+    show_camera: bool = False
     mini: object = None
 
     def run(self) -> Board:
         stream = watch_for_new_row(
             self.layout, already_read_rows=0, target_fps=self.camera_fps,
             stability_frames=self.stability_frames, classify_fn=classify_patch,
+            num_columns=self.code_length,
+            show_camera=self.show_camera,
             mini=self.mini,
         )
 

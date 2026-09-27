@@ -34,6 +34,7 @@ class ReachyCamera:
         media_backend: str = "default",
         target_fps: float = 10.0,
         mini: Optional["ReachyMini"] = None,
+        fix_channel_swap: bool = True,
     ):
         if mini is None and ReachyMini is None:
             raise RuntimeError(
@@ -44,6 +45,13 @@ class ReachyCamera:
         self.target_fps = target_fps
         self._mini = mini
         self._owns_connection = mini is None
+        # Voir `_to_rgb` : `mini.media.get_frame()` renvoie en pratique du
+        # BGR sur ce backend, malgré le contrat RGB documenté par le SDK.
+        # Passer `fix_channel_swap=False` si une future version du
+        # SDK/daemon corrige ce swap en amont (sinon cette correction
+        # deviendrait elle-même un bug, en re-swappant des données déjà
+        # correctes).
+        self.fix_channel_swap = fix_channel_swap
 
     def __enter__(self) -> "ReachyCamera":
         if self._owns_connection:
@@ -54,6 +62,22 @@ class ReachyCamera:
         if self._owns_connection and self._mini is not None:
             self._mini.__exit__(exc_type, exc_val, exc_tb)
             self._mini = None
+
+    @staticmethod
+    def _to_rgb(frame: np.ndarray) -> np.ndarray:
+        """Corrige un swap des canaux rouge/bleu observé sur ce backend.
+
+        Constaté empiriquement sur les données de calibration couleur :
+        chaque teinte de référence (rouge, bleu, jaune, orange...)
+        atterrissait sur le hue OpenCV de sa couleur *conjuguée* sur le
+        cercle chromatique (ex: un pion rouge calibré avec un hue proche
+        de celui du bleu), ce qui est la signature typique d'un échange
+        R↔B plutôt que d'une balance des blancs. `frame[..., ::-1]`
+        inverse l'ordre des canaux ; `np.ascontiguousarray` évite de
+        renvoyer une vue à stride négatif que certains appels OpenCV en
+        aval n'acceptent pas.
+        """
+        return np.ascontiguousarray(frame[..., ::-1])
 
     def get_frame(self, retries: int = 50, retry_delay: float = 0.2) -> np.ndarray:
         """Renvoie la dernière image caméra disponible (RGB, uint8).
@@ -71,7 +95,7 @@ class ReachyCamera:
             if frame is not None and frame.size > 0:
                 if attempt > 0:
                     print(f"[camera] première frame reçue après {attempt} tentative(s)")
-                return frame
+                return self._to_rgb(frame) if self.fix_channel_swap else frame
             if attempt == 10:
                 print(
                     "[camera] toujours aucune frame après 2s, la négociation "
@@ -108,7 +132,10 @@ class FakeCamera:
 
     `frame_provider` est une fonction sans argument qui renvoie une image
     np.ndarray à chaque appel (ex: lecture d'un fichier, image statique,
-    webcam locale via cv2.VideoCapture).
+    webcam locale via cv2.VideoCapture). Contrairement à `ReachyCamera`,
+    aucune correction de canaux n'est appliquée ici : `make_webcam_provider`
+    (dans `calibrate.py`) fait déjà lui-même la conversion BGR->RGB
+    nécessaire pour la webcam locale.
     """
 
     def __init__(self, frame_provider, target_fps: float = 10.0):
