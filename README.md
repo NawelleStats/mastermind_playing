@@ -1,3 +1,5 @@
+# WIP: la logique du jeu doit être reconstruite (next step: ajout d'une couche de ML)
+
 # Mastermind avec Reachy Mini
 
 Jeu de Mastermind jouable avec le robot Reachy Mini, dans les deux rôles :
