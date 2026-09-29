@@ -32,10 +32,12 @@ class DialogueManager:
         language_hint: str = "fr",
         gaze_pitch_deg: float = 25.0,
         gaze_yaw_deg: float = 0.0,
+        gaze_height_m: float | None = None,
     ):
         self._mini = mini
         self._gaze_pitch_deg = gaze_pitch_deg
         self._gaze_yaw_deg = gaze_yaw_deg
+        self._gaze_height_m = gaze_height_m
         self._speaker = Speaker(mini, voice_lang_hint=language_hint)
 
     # --- Mode codebreaker : Reachy Mini propose ses essais -----------------
@@ -46,6 +48,7 @@ class DialogueManager:
             self._mini,
             pitch_deg=self._gaze_pitch_deg,
             yaw_deg=self._gaze_yaw_deg,
+            height_m=self._gaze_height_m,
         )
         self._speaker.say(f"Je propose : {', '.join(guess)}.")
 

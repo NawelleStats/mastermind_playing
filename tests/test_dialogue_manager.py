@@ -20,19 +20,20 @@ def test_announce_guess_restores_calibrated_gaze_after_thinking(monkeypatch):
     monkeypatch.setattr(
         dialogue_manager,
         "look_down_at_board",
-        lambda mini, pitch_deg, yaw_deg: events.append(
-            ("restore_gaze", mini, pitch_deg, yaw_deg)
+        lambda mini, pitch_deg, yaw_deg, height_m: events.append(
+            ("restore_gaze", mini, pitch_deg, yaw_deg, height_m)
         ),
     )
 
     mini = object()
     manager = dialogue_manager.DialogueManager(
-        mini, gaze_pitch_deg=31.0, gaze_yaw_deg=-12.0
+        mini, gaze_pitch_deg=31.0, gaze_yaw_deg=-12.0, gaze_height_m=0.42
     )
     manager.announce_guess(["rouge", "bleu"])
 
+
     assert events == [
         ("thinking", mini),
-        ("restore_gaze", mini, 31.0, -12.0),
+        ("restore_gaze", mini, 31.0, -12.0, 0.42),
         ("say", "Je propose : rouge, bleu."),
     ]

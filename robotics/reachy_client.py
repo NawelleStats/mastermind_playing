@@ -36,6 +36,8 @@ GAZE_PITCH_RANGE_DEG = (-40.0, 40.0)
 HEAD_YAW_HW_RANGE_DEG = (-180.0, 180.0)
 MAX_HEAD_BODY_YAW_DELTA_DEG = 65.0
 GAZE_STEP_RANGE_DEG = (1.0, 15.0)
+GAZE_HEIGHT_STEP_M = 0.01
+GAZE_MOVE_DURATION = 0.8
 
 
 def _get_body_yaw_deg(mini) -> Optional[float]:
@@ -134,10 +136,15 @@ def go_neutral(mini, duration: float = NEUTRAL_DURATION) -> None:
 
 
 def look_down_at_board(
-    mini, pitch_deg: float = 25.0, yaw_deg: float = 0.0, duration: float = 1.0
+    mini,
+    pitch_deg: float = 25.0,
+    yaw_deg: float = 0.0,
+    duration: float = 1.0,
+    height_m: Optional[float] = None,
 ) -> None:
     """Incline la tête vers le bas, posture d'observation du plateau posé
     devant le robot. `pitch_deg` est à ajuster selon la hauteur du plateau.
+    `height_m`, si fourni, fixe la hauteur verticale calibrée en mètres.
     """
     current_pose = np.asarray(mini.get_current_head_pose(), dtype=float)
     head_position = current_pose[:3, 3]
@@ -145,13 +152,14 @@ def look_down_at_board(
         head=create_head_pose(
             x=head_position[0],
             y=head_position[1],
-            z=head_position[2],
+            z=head_position[2] if height_m is None else height_m,
             pitch=pitch_deg,
             yaw=yaw_deg,
             degrees=True,
         ),
         duration=duration,
         method="minjerk",
+        body_yaw=None,
     )
 
 
@@ -192,7 +200,7 @@ def adjust_gaze_interactively(
     initial_pitch_deg: float = 0.0,
     initial_yaw_deg: float = 0.0,
     step_deg: float = 3.0,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     """Ouvre une fenêtre live permettant d'orienter la tête au clavier
     jusqu'à bien cadrer le plateau, avant de lancer la calibration.
 
@@ -200,6 +208,7 @@ def adjust_gaze_interactively(
     dans OpenCV, notamment sur macOS) :
         i / k : pencher la tête vers le haut / le bas (pitch)
         j / l : tourner la tête à gauche / à droite (yaw)
+        r / f : relever / abaisser la tête (1 cm par pression)
         +  /  - : augmenter / diminuer le pas de déplacement
         c ou Entrée : valider la position et continuer
         q : passer sans changer la position par défaut
@@ -222,6 +231,7 @@ def adjust_gaze_interactively(
 
     current_pose = np.asarray(mini.get_current_head_pose(), dtype=float)
     head_position = current_pose[:3, 3].copy()
+    height_m = float(head_position[2])
 
     MOVE_KEYS = {
         "i": (-1, 0, "I: haut"),
@@ -244,12 +254,14 @@ def adjust_gaze_interactively(
             head=create_head_pose(
                 x=head_position[0],
                 y=head_position[1],
-                z=head_position[2],
+                z=height_m,
                 pitch=pitch,
                 yaw=yaw,
                 degrees=True,
             ),
-            duration=0.3,
+            duration=GAZE_MOVE_DURATION,
+            method="minjerk",
+            body_yaw=None,
         )
 
     def draw_overlay(frame) -> Any:
@@ -258,6 +270,7 @@ def adjust_gaze_interactively(
             "ORIENTATION DE LA TETE",
             "I / K : haut / bas",
             "J / L : gauche / droite",
+            "R / F : relever / abaisser (1 cm)",
             "+ / - : modifier le pas",
             "C / Entree : valider",
             "Q : continuer sans modifier",
@@ -272,7 +285,8 @@ def adjust_gaze_interactively(
             )
         cv2.putText(
             display,
-            f"pitch={pitch:.0f} yaw={yaw:.0f} pas={step:.0f} | touche: {last_command}",
+            f"pitch={pitch:.0f} yaw={yaw:.0f} z={height_m:.3f}m "
+            f"pas={step:.0f} | touche: {last_command}",
             (14, panel_height + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
             (0, 255, 0), 2,
         )
@@ -282,7 +296,7 @@ def adjust_gaze_interactively(
     apply_pose()
     print(
         "Orientez la tête du robot pour bien cadrer le plateau : "
-        "i/k = haut/bas, j/l = gauche/droite, +/- = pas, "
+        "i/k = haut/bas, j/l = gauche/droite, r/f = relever/abaisser, +/- = pas, "
         "c ou Entrée = valider, q = passer."
     )
 
@@ -310,6 +324,10 @@ def adjust_gaze_interactively(
                 yaw = _clamp(yaw + dyaw * step, gaze_yaw_range_deg)
                 last_command = label
                 apply_pose()
+            elif key_char in ("r", "f"):
+                height_m += GAZE_HEIGHT_STEP_M if key_char == "r" else -GAZE_HEIGHT_STEP_M
+                last_command = "R: relever" if key_char == "r" else "F: abaisser"
+                apply_pose()
             elif key_char in STEP_KEYS:
                 delta, label = STEP_KEYS[key_char]
                 step = _clamp(step + delta, GAZE_STEP_RANGE_DEG)
@@ -319,4 +337,4 @@ def adjust_gaze_interactively(
         # appel OpenCV lève une exception en cours de boucle.
         cv2.destroyWindow(window)
 
-    return pitch, yaw
+    return pitch, yaw, height_m

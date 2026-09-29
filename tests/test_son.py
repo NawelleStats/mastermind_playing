@@ -21,4 +21,3 @@ def test_speaker_plays_builtin_sound():
         mini.media.play_sound("wake_up.wav")
         time.sleep(1.5)
         print("Test terminé.")
-

@@ -88,7 +88,9 @@ def calibrate_with_robot(args, colors) -> BoardLayout:
         # connexion active au total, partagée avec l'orientation de tête).
         with ReachyCamera(mini=mini) as cam:
             print("Étape 0/2 : orientez la tête du robot vers le plateau.")
-            gaze_pitch, gaze_yaw = adjust_gaze_interactively(mini, cam.get_frame)
+            gaze_pitch, gaze_yaw, gaze_height_m = adjust_gaze_interactively(
+                mini, cam.get_frame
+            )
 
             print("Étape 1/2 : calibration de la grille de trous.")
             layout = calibrate_grid(
@@ -99,7 +101,11 @@ def calibrate_with_robot(args, colors) -> BoardLayout:
 
             print("Étape 2/2 : calibration des couleurs.")
             layout.references = calibrate_colors(cam.get_frame, colors)
-            layout.gaze = {"pitch_deg": gaze_pitch, "yaw_deg": gaze_yaw}
+            layout.gaze = {
+                "pitch_deg": gaze_pitch,
+                "yaw_deg": gaze_yaw,
+                "height_m": gaze_height_m,
+            }
     return layout
 
 

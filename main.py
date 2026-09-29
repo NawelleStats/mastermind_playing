@@ -62,15 +62,18 @@ def main() -> None:
         gaze = layout.gaze or {}
         gaze_pitch_deg = gaze.get("pitch_deg", 25.0)
         gaze_yaw_deg = gaze.get("yaw_deg", 0.0)
+        gaze_height_m = gaze.get("height_m")
         look_down_at_board(
             mini,
             pitch_deg=gaze_pitch_deg,
             yaw_deg=gaze_yaw_deg,
+            height_m=gaze_height_m,
         )
         dialogue = DialogueManager(
             mini,
             gaze_pitch_deg=gaze_pitch_deg,
             gaze_yaw_deg=gaze_yaw_deg,
+            gaze_height_m=gaze_height_m,
         )
         try:
             if mode == "codebreaker":

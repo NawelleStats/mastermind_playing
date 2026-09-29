@@ -1,5 +1,9 @@
 # Journal des changements
 
+## 2026-09-29
+
+- Ajout de la possibilité d'ajuster la tête en montant et descendant, pour avoir une vision plongeante.
+
 ## 2026-09-27
 
 - Correction des couleurs lors de l'affichage de la perception du robot (BGR au lieu de RGB).
